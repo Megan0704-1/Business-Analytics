@@ -1,0 +1,410 @@
+---
+title: "HW18"
+author: '108048110'
+date: '2022-06-07'
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# BACS HW - Week 18
+
+------------------------------------------------------------------------
+
+## Prerequisite
+
+```{r message=FALSE, warning=FALSE, paged.print=TRUE}
+library(dplyr)
+library(ggplot2)
+library(DataExplorer)
+library(rpart)
+library(rpart.plot)
+```
+
+## Setup
+
+```{r}
+# loading data and remove missing values
+insurance <- read.csv('data/insurance.csv')
+
+as.matrix(lapply(insurance, \(x){sum(is.na(x))}))
+
+plot_missing(insurance)
+
+# define rmse function
+rmse_oos <- function(groud_truth, preds){
+  sqrt(mean((groud_truth-preds)^2))
+}
+```
+
+------------------------------------------------------------------------
+
+## Question 1) Create Explanatory models
+
+### a. Create an OLS regression model and report which factors are significantly related to charges.
+
+```{r}
+# a. Ordinary Least Square regression
+insurance %>% glimpse
+insurance_lm <- lm(charges~age+
+                     sex+
+                     bmi+
+                     children+
+                     smoker+
+                     region,
+                   data = insurance)
+summary(insurance_lm)
+```
+
+**Ans.** `Age`, `BMI`, `children`, and `smoker` appear to be highly correlated to charging.
+
+```{r}
+plot(insurance_lm)
+```
+
+------------------------------------------------------------------------
+
+### b. Create a decision tree.
+
+```{r}
+insurance_tree <- rpart(charges~age+
+                          sex+
+                          bmi+
+                          children+
+                          smoker+
+                          region,
+                        data = insurance)
+```
+
+#### *i.* Plot a visual representation of the tree.
+
+```{r}
+rpart.plot(insurance_tree)
+```
+
+#### *ii.* How deep is the tree.
+
+```{r include=FALSE}
+# depth=3
+```
+
+**Ans.** Depth=3.
+
+#### *iii.* How many leaf groups does it suggest to bin the data into?
+
+```{r}
+insurance_tree$frame$var
+```
+
+**Ans.** 4 leaf groups.
+
+#### *iv.* What is the average charges of each leaf group?
+
+```{r}
+insurance_tree %>% summary
+```
+
+**Ans.** 5398.85, 12299.89, 21369.22, 441692.81
+
+#### *v.* What conditions (decisions) describe each group?
+
+**Ans.** `smoker`==no, `age`\<43, `bmi`\<30.
+
+------------------------------------------------------------------------
+
+## Question 2) Use LOOCV to see how how our models perform predictively.
+
+```{r}
+
+fold_i_pred_err <- function(i, k, dataset, model){
+  # cut the data set
+  folds <- cut(1:nrow(dataset), k, labels=FALSE)
+  
+  # pick data that is labeled as "i"
+  test_indices <- which(folds==i)
+  
+  test_set <- dataset[test_indices, ]
+  train_set <- dataset[-test_indices, ]
+  
+  # trained model
+  trained_model <- update(model, data=train_set)
+  
+  predictions <- predict(trained_model, test_set)
+  test_set[,length(test_set)]-predictions
+}
+
+
+# calculates mse_oos across all folds
+k_fold_rmse <- function(model, data, k=10){
+  
+  # randomly shuffle the data
+  shuffled_indices = sample(1:nrow(data))
+  data = data[shuffled_indices,]
+  
+  # get prediction errors of each folds
+  fold_pred_error <- sapply(1:k, \(i){
+    fold_i_pred_err(i, k, data, model)
+  })
+  
+  pred_error <- unlist(fold_pred_error)
+  
+  rmse <- \(errs){sqrt(mean(errs^2))}
+  
+  c(in_sample = rmse(residuals(model)), out_of_sample = rmse(pred_error))
+}
+
+```
+
+### a. What is the $RMSE_{oos}$ for the OLS regression model?
+
+```{r}
+k_fold_rmse(insurance_lm, insurance, k=nrow(insurance))
+```
+
+### b. What is the $RMSE_{oos}$ for the decision tree model?
+
+```{r}
+k_fold_rmse(insurance_tree, insurance, k=nrow(insurance))
+```
+
+------------------------------------------------------------------------
+
+# Bagging and Boosting
+
+-   **Note.** For bagging and boosting, we will partition the data to create training and test sets using an 80:20 split-sample testing to save time.
+
+```{r}
+train_indicies = sample(1:nrow(insurance),
+                        size=0.8*nrow(insurance))
+train_set = insurance[train_indicies,]
+test_set = insurance[-train_indicies,]
+```
+
+## Question 3)
+
+## - Bagging
+
+### a. Write `bagged` functions
+
+to train and predict on the data.
+
+```{r}
+bagged_train <- function(model, dataset, b=250){
+  lapply(1:b, \(i){
+    # get a bootstrapped data set
+    train_set <- dataset[sample(1:nrow(dataset), nrow(dataset), replace=TRUE),]
+    train_models = update(model, data=train_set)
+  })
+}
+```
+
+```{r}
+bagged_predict <- function(bagged_model, new_data){
+  predictions <- lapply(1:length(bagged_model), \(i){
+    predict(bagged_model[[i]], new_data)
+  })
+  
+  # take the mean of 100 predictions on rows of mpg
+  as.data.frame(predictions) |> apply(1, FUN=mean)
+}
+```
+
+### b. What is the $RMSE_{oos}$ for the bagged OLS regression?
+
+```{r}
+old_learning <- update(insurance_lm, data=train_set) |>
+  predict(object=_, test_set) |>
+  rmse_oos(test_set$charges, preds=_)
+
+print(old_learning)
+
+set.seed(1)
+# bagged
+bagged_train(insurance_lm, train_set, b=100) |>
+  bagged_predict(test_set) |>
+  rmse_oos(test_set$charges, preds=_)
+```
+
+```{r}
+boots <- seq(100, 1200, by=100)
+learning <- sapply(boots, \(b){
+  bagged_train(insurance_lm, train_set, b=b) |>
+    bagged_predict(test_set) |>
+    rmse_oos(test_set$charges, preds=_)
+})
+
+plot(boots, learning, type="l")
+abline(h=old_learning, lty='dashed')
+
+```
+
+### c. What is the $RMSE_{oos}$ for the bagged decision tree?
+
+```{r}
+old_learning <- 
+  predict(insurance_tree, test_set) |>
+  rmse_oos(test_set$charges, preds=_)
+
+print(old_learning)
+
+
+bagged_train(insurance_tree, train_set, b=100) |>
+  bagged_predict(test_set) |>
+  rmse_oos(test_set$charges, preds=_)
+```
+
+```{r}
+boots <- seq(100, 1200, by=100)
+learning <- sapply(boots, \(b){
+  bagged_train(insurance_tree, train_set, b=b) |>
+    bagged_predict(test_set) |>
+    rmse_oos(test_set$charges, preds=_)
+})
+
+plot(boots, learning, type="l")
+abline(h=old_learning, lty='dashed')
+```
+
+## - Boosting
+
+### a. Write `boosted` functions to train and predict on the data.
+
+```{r}
+boost_train <- function(model, dataset, target, n=100, lr=0.1){
+  
+  # get target column index
+  target_index = which(colnames(dataset)==target)
+  
+  # get data.frame of only predictor variable
+  predictors <- dataset[, -target_index]
+  
+  # Initialize residuals and models
+  res <- dataset[, target_index] # get vector of GT to start
+
+  models <- list()
+  
+  for(i in 1:n){
+    
+    # fit predictor and residuals
+    new_model <- update(model, data = cbind(charges=res, predictors))
+    
+    # update residuals with lr: e = e - a * y_hat
+    res <- res-sapply(predict(new_model, dataset), \(i){lr*i})
+    
+    
+    models[[i]] <- new_model
+  }
+  
+  list(models=models, lr=lr)
+}
+```
+
+```{r}
+boost_predict <- function(boosted_training, new_data){
+  boosted_model = boosted_training$models
+  boosted_lr = boosted_training$lr
+  
+  # predict target for models and store the predictions
+  predictions = lapply(boosted_model, \(model){predict(model, new_data)})
+  
+  predictions_frame = as.data.frame(predictions) |> unname()
+  
+  apply(predictions_frame, 1, sum)*boosted_lr
+}
+```
+
+### b. What is the $RMSE_{oos}$ for the boosted OLS regression?
+
+```{r}
+boost_train(insurance_lm, train_set, target="charges", n=1000) |>
+  boost_predict(test_set) |>
+  rmse_oos(test_set$charges, preds = _)
+
+```
+
+### c. What is the $RMSE_{oos}$ for the boosted decision tree?
+
+```{r}
+boost_train(insurance_tree, train_set, target="charges", n=1000) |>
+  boost_predict(test_set) |>
+  rmse_oos(test_set$charges, preds = _)
+```
+
+------------------------------------------------------------------------
+
+## Question 4) Repeat the `bagging` and `boosting` decision tree several times to see what kind of base tree helps us learn the fastest.
+
+**Note.** Report the $RMSE_{oos}$ at each step.
+
+### a. Repeat the `bagging` of the decision tree, using a base tree of maximum depth 1, 2, ... n while the $RMSE_{oos}$ keeps dropping; stop when the $RMSE_{oos}$ has started increasing again.
+
+```{r}
+prev_err=100000000
+pred_err=10000000
+err_list <- c()
+depth=1
+while(pred_err<prev_err){
+  
+  insurance_tree <- rpart(charges~age+
+                            sex+
+                            bmi+
+                            children+
+                            smoker+
+                            region,
+                          data = insurance,
+                          maxdepth=depth)
+  
+  if(pred_err < prev_err){prev_err = pred_err}
+  
+  pred_err = bagged_train(insurance_tree, insurance) |>
+    bagged_predict(insurance) |>
+    rmse_oos(insurance$charges, preds = _)
+  
+  err_list <- c(err_list, pred_err)
+  depth = depth+1
+}
+
+length(err_list)
+plot(1:(depth-1), err_list, type="l")
+
+paste0("Max depth = ", length(err_list)-1)
+```
+
+### b. Repeat the `boosting` of the decision tree, using a base tree of maximum depth 1, 2, ... n while the $RMSE_{oos}$ keeps dropping; stop when the $RMSE_{oos}$ has started increasing again.
+
+```{r}
+prev_err=100000000
+pred_err=10000000
+err_list <- c()
+depth=1
+while(pred_err<prev_err){
+  
+  insurance_tree <- rpart(charges~age+
+                            sex+
+                            bmi+
+                            children+
+                            smoker+
+                            region,
+                          data = insurance,
+                          maxdepth=depth)
+  
+  if(pred_err < prev_err){prev_err = pred_err}
+  
+  pred_err = boost_train(insurance_tree, insurance, target="charges") |>
+    boost_predict(insurance) |>
+    rmse_oos(insurance$charges, preds = _)
+  
+  err_list <- c(err_list, pred_err)
+  depth = depth+1
+}
+
+length(err_list)
+plot(1:(depth-1), err_list, type="l")
+
+```
+
+**Ans.** Max depth: 3

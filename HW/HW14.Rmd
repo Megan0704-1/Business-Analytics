@@ -1,0 +1,353 @@
+---
+title: "HW14"
+author: '108048110'
+date: '2022-05-18'
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# BACS HW - Week 14
+
+------------------------------------------------------------------------
+
+## Prerequisite
+
+```{r message=FALSE, warning=FALSE}
+library(ggpubr)
+library(ggplot2)
+library(plot3D)
+library(rgl)
+library(factoextra)
+library(FactoMineR)
+library(magrittr)
+library(psych)
+```
+
+```{r warning=FALSE}
+path = 'data/security_questions.xlsx'
+questions <- readxl::read_excel(path, sheet=1, col_names = c("Index", "Questions"))
+data <- readxl::read_excel(path, sheet=2)
+```
+
+------------------------------------------------------------------------
+
+## Question 1)
+
+Parallel analysis
+
+### a. Show a single visualization with scree plot of data, scree plot of simulated noise, and a horizontal line showing the $eigenvalue = 1$ cutoff.
+
+```{r}
+data_pca <- prcomp(data, scale.=TRUE)
+data_pca |> sapply(head)
+
+data_pca$rotation = -data_pca$rotation
+```
+
+```{r warning=FALSE}
+fviz_pca_var(data_pca,
+             col.var = "contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE   
+)
+data_pca <- prcomp(data, scale.=TRUE)
+```
+
+```{r warning=FALSE}
+# Simulating the noise and taking its eigenvalues
+sim_noise <- function(n, p){
+  noise <- data.frame(replicate(p, rnorm(n))) # 33*10
+  correlation <- cor(noise) # 10*10
+  eigen(correlation)$values # 10, how much variance can be explained from the noise.
+}
+eigen_noise <- replicate(100, sim_noise(33, 10)) #100*10
+eigen_noise_mean <- apply(eigen_noise, 1, mean)
+
+res.pca <- PCA(data)
+p1 <- fviz_eig(res.pca, 
+               choice = 'eigenvalue', 
+               addlabels=TRUE, 
+               main='Original Screeplot (variance)')
+p1 <- p1+geom_hline(yintercept = 1,color="red", lwd=1.2)
+
+
+p2 <- fviz_eig(res.pca, 
+               choice = 'variance', 
+               addlabels=TRUE, 
+               main='Original Screeplot (eigenvalue)')
+p2 <- p2+geom_hline(yintercept = 1,color="red", lwd=1.2)
+
+color_list <- "coral2"
+p3 <- fviz_eig(res.pca, 
+               choice = 'eigenvalue', 
+               addlabels=TRUE, 
+               main='Screeplot with noise (variance)')+
+  geom_point(aes(x=1:10, y=eigen_noise_mean),color=color_list)+
+  geom_line(aes(x=1:10, y=eigen_noise_mean),color=color_list)+
+  theme_bw()
+p3 <- p3+geom_hline(yintercept = 1,color="red", lwd=1.2)
+
+ggarrange(p1, p2, ncol=2, nrow=1)
+ggarrange(p1, p3, ncol=2, nrow=1)
+```
+
+### b. How many dimensions would you retain if we used Parallel Analysis?
+
+-   After conducting ***Horn's Parallel Analysis***, we can easily observe from the plot that the first PC is the only component with a higher eigenvalues compare to the average `noise`. As a result, by comparing variance extracted from the original data versus noise, we can conclude that only a single dimension, the first PC, will be retained in our model.
+
+------------------------------------------------------------------------
+
+## Question 2) Factor model
+
+#### Composite measurement model vs. Factor model analysis
+
+##### **Comparison**
+
+-   In simple terms, the main difference between composite model and factor model is that the latter tends to examine *`model fittness`* by interpreting whether the factors in our model are related to the answer to our question or not; whereas, composite models consist of a set of interrelated composites, all of which emerge as linear combinations of the observable variables.
+
+-   Furthermore, factor analysis requires a larger amount of data, while composite measurement model can be done with just few samples.
+
+### Factor analysis - Principal
+
+-   The `principal` function in r is simply doing a PCA for $n$ principal components of either a correlation or covariance matrix.
+
+-   Different from `princomp`, `principal` returns a subset of the ***best n factors***, and the eigenvectors are rescaled by square root of the eigenvlaues to produce the components' **loadings**.
+
+```{r}
+data_principal <- principal(data, nfactor=ncol(data), rotate="none", scores=TRUE)
+data_principal |> sapply(head)
+```
+
+```{r}
+# ss_loadings = eigenvalues
+ss_loadings <- sum(data_principal$loadings[,"PC1"]^2)
+ss_loadings
+data_principal$values[1]
+```
+
+### a. To which components does each item seem to best belong? (3 components)
+
+```{r}
+# function that find good loadings in each PC.
+find_unique <- function(data_principal, n){
+  for (i in 1:n){
+    if (max(data_principal$loadings[,i]) > 0.7){
+      important_ones <- data_principal$loadings[,i][data_principal$loadings[,i]>=0.7]
+      important_ones <- sort(important_ones, decreasing=TRUE)
+      cat("Component", i, "has good loadings:", names(important_ones))
+    }else{
+      important_ones <- sort(data_principal$loadings[,i], decreasing = TRUE)[1]
+      cat("Component", i, "has good no loadings.\n")
+      cat('The largest lambda value is: ', important_ones)
+    }
+    name <- names(important_ones)
+    cat("\nBest fit:", name)
+    cat('\n')
+    cat('\n')
+  }
+}
+
+head(data_principal$loadings[,1:3])
+data_principal$Vaccounted[, 1:5]
+
+for (i in 1:18){
+  cat(paste0('Best belong for Question ', i),': ')
+  cat(names(sort(data_principal$loadings[i,], decreasing=TRUE))[1])
+  cat('\n')
+}
+
+find_unique(data_principal, 18)
+```
+
+-   **Conclusion.** Items are either best belong to PC1 or PC2. Also, only the first PC has good loadings.
+
+### b. How much of the total variance of the security dataset do the first 3 PCs capture?
+
+```{r}
+data_principal$Vaccounted['Cumulative Var','PC3']
+```
+
+### c. Which items are less than adequately explained by the first 3 principal components?
+
+-   **Tips.** Communality and Uniqueness.
+
+```{r}
+# communality = h^2
+data_pca3 <- principal(data, nfactor=3, rotate='none', scores=TRUE)
+
+# variances of variables explained by a specified amount of principal components.
+community <- data_pca3$communality
+community
+
+# 1-communality, unexplained variance of a certain variable.
+data_pca3$uniquenesses
+```
+
+-   Think we're dealing with an item with low ***communality*** and high ***uniqueness*** value.
+
+```{r}
+temp = sort(data_pca3$communality)
+names(temp[temp<=0.7])
+temp = sort(data_pca3$uniquenesses, decreasing = TRUE)
+names(temp[temp>=0.3])
+```
+
+-   **Conclusion.** Q2 is the least to be adequately explained by the first 3 PC.
+
+### d. How many measurement items share similar loadings between 2 or more components?
+
+```{r warning=FALSE}
+data_principal <- principal(data, nfactor=ncol(data), rotate='none', scores=TRUE)
+
+#round(cor(data_principal$scores),2)
+
+x<- unname(data_pca3$loadings[,1])
+y<- unname(data_pca3$loadings[,2])
+z<- unname(data_pca3$loadings[,3])
+
+scatter3D(x, y, z,
+          phi=0, 
+          bty='g',
+          main="Dimension Comparison",
+          xlab='PC1', ylab='PC2', zlab='PC3',
+          cex=2, pch=20, 
+          ticktype="simple")
+text3D(x, y, z, labels=paste0("Q", 1:18), add=TRUE, colkey = FALSE, cex=0.7)
+
+
+x<- unname(data_pca3$scores[,1])
+y<- unname(data_pca3$scores[,2])
+z<- unname(data_pca3$scores[,3])
+
+scatter3D(x, y, z,
+          phi=0, 
+          bty='g',
+          main="Subjects scores",
+          xlab='PC1', ylab='PC2', zlab='PC3',
+          cex=1.2, pch=20, 
+          ticktype="simple",
+          type="h")
+```
+
+-   **Ans.** I have no idea, guessing 4 or 5 maybe??
+
+### e. Can you interpret a `meaning` behind the first principal component from the items that load best upon it?
+
+```{r}
+find_unique(data_principal, 1)
+best_fit_PC1 <- sort(c(1, 14, 18, 8, 3, 16, 11, 9, 13, 15))
+questions[best_fit_PC1,]
+```
+
+-   **Ans.** I'm guessing that consumers perceive the security of e-commerce websites largely on its functionality and security.
+
+------------------------------------------------------------------------
+
+## Question 3) Rotated Components
+
+### a. Does each rotated component (RC) explain the same, or different, amount of variance than the corresponding PCs?
+
+```{r warning=FALSE}
+data_principal <- principal(data, nfactor=3, rotate='none', scores=TRUE)
+data_r_principal <- principal(data, nfactor=3, rotate='varimax', scores=TRUE)
+
+data_principal$Vaccounted["Proportion Var",]
+data_r_principal$Vaccounted["Proportion Var",]
+```
+
+-   **Ans.** They are all different from the original PC. RC1 is less then the first PC.
+
+### b. Do the 3 RCs explain the same, more, or less cumulative variance as the 3 PCs combined?
+
+```{r}
+data_principal$Vaccounted["Cumulative Var",]
+data_r_principal$Vaccounted["Cumulative Var",]
+```
+
+-   **Ans.** They give the same cumulative variance eventually.
+
+### c. Refer to Question 2 (d), do those items have more clearly differentiated `loadings` among rotated components?
+
+```{r}
+best_fit_PC1
+apply(data_principal$loadings[,1:3], 1, sum)
+apply(data_r_principal$loadings[,1:3], 1, sum)
+```
+
+-   **Ans.** Looking at the table, almost every measurement items increased, instead of `Q4`, `Q12` and `Q17`, which are the only 3 items that are not best belong to PC1 originally.
+
+### d. Can you now more easily interpret the `meaning` of the 3 RCs from the items that load best upon each of them?
+
+```{r}
+for (i in 1:18){
+  cat(paste0('Best belong for Question ', i),': ')
+  cat(names(sort(data_r_principal$loadings[i,], decreasing=TRUE))[1])
+  cat('\n')
+}
+
+find_unique(data_r_principal, 3)
+find_unique(data_principal, 3)
+```
+
+-   **Ans.** Yes.
+
+### e. If we reduced the number of extracted and RCs to 2, does the meaning of our RCs change?
+
+-   RC1: concerns of the sites security. (unautorized access)
+
+-   RC2: concerns of transaction transmission.
+
+-   RC3: concerns of transaction evidential protection.
+
+## Ungraded Question
+
+### Q. How many components (1-3) do you believe we should extract and analyze to understand this dataset?
+
+## Additional Practice
+
+### Reproducing data
+
+```{r}
+# reproduce data from various pc dimensions
+reproduce_data <- function(original, num_pc){
+  pca_results <- prcomp(original, scale=TRUE)
+  scores <- pca_results$x[, 1:num_pc]
+  weights <- pca_results$rotation[, 1:num_pc]
+  reproduction <- scores %*% t(weights)
+  return(reproduction)
+}
+
+residual_plt <- function(original, reproduction, ndim){
+  residual <- as.data.frame(original-reproduction)
+  ggplot()+
+    aes(x=1:nrow(data_scale), y=residual$Q1)+
+    geom_point(alpha=0.7, size=2)+
+    ylim(-2,2)+
+    geom_hline(yintercept = 0, 
+               col='salmon',
+               lwd=1.2,
+               lty=2)+
+    ggtitle(paste0("Dimension Reduction: ", ndim))
+}
+
+data_scale <- scale(data)
+ndim=3
+temp = reproduce_data(data_scale, ndim)
+p1 <- residual_plt(data_scale, temp,ndim=ndim)
+ndim=9
+temp = reproduce_data(data_scale, ndim)
+p2 <- residual_plt(data_scale, temp,ndim=ndim)
+ndim=12
+temp = reproduce_data(data_scale, ndim)
+p3 <- residual_plt(data_scale, temp,ndim=ndim)
+ndim=18
+temp = reproduce_data(data_scale, ndim)
+p4 <- residual_plt(data_scale, temp,ndim=ndim)
+
+ggarrange(p1, p2, p3, p4, ncol=2, nrow=2)
+```

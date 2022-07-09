@@ -1,0 +1,424 @@
+---
+title: "HW12"
+author: '108048110'
+date: "5/6/2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# BACS HW - Week 12
+
+------------------------------------------------------------------------
+
+## Prerequisite
+
+```{r message=FALSE, warning=FALSE}
+library(car)
+library(ggplot2)
+library(corrplot)
+library(dplyr)
+library(tidyverse)
+require(gridExtra)
+
+theme_set(theme_bw(base_size=16))
+```
+
+```{r message=FALSE, warning=FALSE}
+auto <- read.table('data/auto-data.txt', header=FALSE, na.strings = '?')
+names(auto) <- c("mpg", "cylinders", "displacement", "horsepower", "weight", 
+                 "acceleration", "model_year", "origin", "car_name")
+auto = with(auto, cbind(mpg, weight, acceleration, model_year, origin))
+auto = as.data.frame(auto[complete.cases(auto),])
+
+cars_log <- with(auto, data.frame(log(mpg),
+                                  log(weight),
+                                  log(acceleration),
+                                  auto$model_year,
+                                  auto$origin))            
+
+names(cars_log) <- c("mpg", "weight",
+                     "acceleration", "model_year", "origin")
+
+knitr::kable(head(cars_log))
+```
+
+------------------------------------------------------------------------
+
+## Question 1) Visualize how `weight` and `acceleration` are related to `mpg`.
+
+> ### a. Visualize how `weight` might moderate the relationship between `acceleration` and `mpg`.
+>
+> -   ***i.*** Create two subsets of your data, one for *light-weight cars*, and one for *heavy car*.
+>
+>     ```{r}
+>     # Moderate
+>     light_wg_cars <- cars_log %>% subset(weight<mean(weight))
+>     heavy_wg_cars <- cars_log %>% subset(weight>=mean(weight))
+>     ```
+>
+>     **Note.** Simple example for doing the log transformation on the original data first.
+>
+>     -   Say you have 3 measurements with values of 1, 10, and 100.
+>
+>         Their mean value is 111/3=37. The base 10 logarithm of 37 is 1.57, which is the log of their mean value in the original scale.
+>
+>         With the base 10 logarithms of the original data are 0, 1, and 2; the mean of the logarithms is 1, corresponding to a value of 10 in the original scale.
+>
+>         As a result, mean of the log does not equal the log of the mean.
+>
+>         So if the log transformation of the data is appropriate, you should always do the transformation on the original data first.
+>
+> -   ***ii.*** Create a single scatter plot of `acceleration` vs. `mpg`, with different colors and/or shapes for *light* vs. *heavy cars*.
+>
+>     ```{r warning=FALSE, message=FALSE}
+>     p1 <- ggplot(light_wg_cars)+
+>       geom_point(aes(acceleration, mpg, color=weight))+
+>       stat_smooth(aes(acceleration, mpg), method=lm)+
+>       ggtitle('Light weight cars')
+>       
+>     p2 <- ggplot(heavy_wg_cars)+
+>       geom_point(aes(acceleration, mpg, color=weight))+
+>       stat_smooth(aes(acceleration, mpg), method=lm)+
+>       ggtitle('Heavy weight cars')
+>     >
+>     grid.arrange(p1, p2)
+>     >
+>     # putting them together
+>     weight_cls <- as.numeric(cars_log[,'weight']>mean(cars_log$weight))
+>     cars_log <- cbind(cars_log, weight_cls)
+>     # Heavy:1, light:0
+>     >
+>     ggplot(cars_log)+
+>       geom_point(aes(x=acceleration, y=mpg, color=weight_cls))+
+>       stat_smooth(aes(y=mpg, x=acceleration), method=lm)
+>     ```
+>
+> -   ***iii.*** Draw two slopes of *acceleration-vs-mpg* over the scatter plot.
+>
+>     ```{r warning=FALSE, message=FALSE}
+>     ggplot(cars_log, aes(acceleration, mpg, color=factor(weight_cls)))+
+>       geom_point(size=1.5)+
+>       labs(color='weight_cls')+
+>       stat_smooth(method=lm)+
+>       theme(legend.position = 'bottom')+
+>       ggtitle('Acceleration v.s. MPG seperated by weight')+
+>       guides(color=guide_legend(override.aes = list(size=1.2)))
+>     ```
+>
+> ### b. Report the full summaries of two separate regressions for *light* and *heavy cars* where `log.mpg.` is dependent on `log.weight.`, `log.acceleration.`, `model_year` and `origin`.
+>
+> ```{r}
+> # light
+> summary(with(light_wg_cars, lm(mpg~weight+acceleration+model_year+factor(origin))))
+> # heavy
+> summary(with(heavy_wg_cars, lm(mpg~weight+acceleration+model_year+factor(origin))))
+> ```
+>
+> ### 
+>
+> c.  What do you observe about *light vs. heavy cars* so far?
+>
+> **Ans.** By observing the $R^2$ values, I deducted that vehicles that weigh heavier tend to be more related to the target explanatory variable mpg.
+
+------------------------------------------------------------------------
+
+## Question 2) Using the fully transformed dataset from `cars_log`, to test whether we have moderation.
+
+> ### a. Between `weight` and `acceleration`, use your intuition and experience to state which variable might be a moderating versus independent variable, in affecting mileage.
+>
+> -   **Ans.** Guessing from my inexperienced intuition, I state that the weight might be a moderator of accerleration affecting mileage.
+>
+> ### b. Use various regression models to model the possible moderation on `log.mpg.`
+>
+> ```{r}
+> # drop the weight class
+> cars_log = cars_log[,-length(cars_log)]
+> >
+> knitr::kable(head(cars_log))
+> ```
+>
+> -   **Identifying symptoms of multicollinearity!**
+>
+> <!-- -->
+>
+> -   <div>
+>
+>     -   ***i.*** Report a regression without any interaction terms.
+>
+>     </div>
+>
+>     ```{r}
+>     summary(lm(mpg~
+>                  weight+
+>                  acceleration+
+>                  model_year+
+>                  factor(origin),
+>                data = cars_log))
+>     ```
+>
+> -   <div>
+>
+>     -   ***ii.*** Report a regression with an interaction between `weight` and `acceleration`.
+>
+>     </div>
+>
+>     ```{r}
+>     interaction_term <- cars_log$weight*cars_log$acceleration
+>     summary(lm(mpg~
+>                 weight+
+>                 acceleration+
+>                 model_year+
+>                 factor(origin)+
+>                 interaction_term,
+>               data=cars_log))
+>     ```
+>
+> -   <div>
+>
+>     -   ***iii.*** Report a regression with a **mean-centered interaction term**.
+>
+>     </div>
+>
+>     ```{r}
+>     # class of origin is originally 'factor'
+>     # thus I transform it into numeric data type in order to scale it and develop a linear model.
+>     >
+>     # Mean-centered
+>     log_weight_mc = scale(cars_log$weight, scale=FALSE)
+>     log_acc_mc = scale(cars_log$acceleration, scale=FALSE)
+>     interaction_term = log_weight_mc*log_acc_mc
+>     >
+>     with(cars_log, cor(log_weight_mc, interaction_term))
+>     with(cars_log, cor(log_acc_mc, interaction_term))
+>     >
+>     summary(lm(mpg~
+>                  weight+
+>                  acceleration+
+>                  model_year+
+>                  factor(origin)+
+>                  interaction_term,
+>                data = cars_log))
+>     ```
+>
+>     -   As we can observe from the summary table, there is no change in significance or $R^2$ value; thus, we can only improve interpretability of the coefficients.
+>
+> -   <div>
+>
+>     -   ***iv.*** Report a regression with an **orthogonalized** **interaction term**.
+>
+>     </div>
+>
+>     ```{r}
+>     # predict weight by cylinders
+>     interaction_term = cars_log$weight*cars_log$acceleration
+>     >
+>     interaction_pred = lm(interaction_term~
+>                              cars_log$weight+
+>                              cars_log$acceleration)
+>     interaction_ortho = interaction_pred$residuals
+>     >
+>     summary(lm(mpg~
+>                  weight+
+>                  acceleration+
+>                  model_year+
+>                  factor(origin)+
+>                  interaction_ortho,
+>                data=cars_log))
+>     >
+>     # Compare to the Original dataset
+>     summary(with(cars_log, lm(mpg~
+>                                 weight+
+>                                 acceleration+
+>                                 model_year+
+>                                 factor(origin)
+>                               )
+>                  )
+>     )
+>     ```
+>
+>     -   **Note.** We still can not statistically remove multicollinearity from the model.
+>
+>     -   Despite the fact that the estimating value looks almost the same as the original data, as we can observe from the summary table, the standard error did slightly decrease.
+>
+>     -   As a result, we can conclude that orthogonalization gives us the most interpretable coefficients; however, it still does not statistically remove multicollinearity from our explanatory model.
+>
+> ## c. For each of the interaction term strategies above, what is the correlation between that interaction term and the two variables that you multiplied together?
+>
+> ```{r}
+> # correlation plot function
+> cor_plt <- function(data){
+>   cor_data <- round(cor(data[, 1:length(data)], use='pairwise.complete.obs'), 3)
+>   cor_sorted_data <- names(sort(cor_data[, 'mpg'], decreasing = TRUE))
+>   cor_data <- cor_data[cor_sorted_data, cor_sorted_data]
+>   
+>   corrplot.mixed(cor_data, tl.col='black', tl.pos='lt')
+> }
+> ```
+>
+> -   <div>
+>
+>     -   it seems that acceleration has a higher correlation with the interactive term.
+>
+>     </div>
+>
+> ```{r}
+> # raw:
+> # calculate cor between weight, acceleration with interactive term respectively.
+> cor(cars_log)
+> >
+> interaction_term = cars_log$weight*cars_log$acceleration
+> cor(cars_log$weight, interaction_term)
+> cor(cars_log$acceleration, interaction_term)
+> >
+> cor_plt(cars_log)
+> >
+> # interaction(weight*acc):
+> with_interaction <- cbind(cars_log, 'interaction'=cars_log$weight*cars_log$acceleration)
+> cor(with_interaction)
+> cor_plt(with_interaction)
+> >
+> # mean-centered:
+> scaled_w <- scale(cars_log$weight, center=TRUE, scale=FALSE)
+> scaled_a <- scale(cars_log$weight, center=TRUE, scale=FALSE)
+> interaction_term_mc <- scaled_w * scaled_a
+> cor(scaled_w, interaction_term_mc) # == cor()
+> cor(scaled_a, interaction_term_mc)
+> ```
+>
+> -   As we can observe from the above summary table, it does not matter whether you scale the data or not you get the same $R^2$ value; however, compare to the original data, mean-centered method does decrease the standard error value dramatically.
+>
+> ```{r}
+> # !!!!! MIND THIS ONE !!!!!!
+> # orthogonal
+> interaction_term = cars_log$weight * cars_log$acceleration
+> >
+> # In order to calculate the orthogoanl interaction
+> # We should predict the interaction term by factors!!!!
+> car_log_regr <- lm(interaction_term~
+>                      cars_log$weight+
+>                      cars_log$acceleration)
+> >
+> # And then calculate the residuals
+> interaction_ortho = car_log_regr$residuals
+> >
+> with_orthogonal <- cbind(cars_log, 'orthogonal'= interaction_ortho)
+> cor(with_orthogonal)
+> cor_plt(with_orthogonal)
+> >
+> cor(cars_log$weight, interaction_ortho)
+> cor(cars_log$acceleration, interaction_ortho)
+> ```
+
+------------------------------------------------------------------------
+
+## Question 3) Might `cylinders` have an indirect relationship with `mpg` through its weight?
+
+> ### a. Try computing the direct effects first.
+>
+> ```{r}
+> auto <- read.table('data/auto-data.txt', header=FALSE, na.strings = '?')
+> names(auto) <- c("mpg", "cylinders", "displacement", "horsepower", "weight", 
+>                  "acceleration", "model_year", "origin", "car_name")
+> auto = with(auto, cbind(mpg, weight, acceleration, model_year, origin, cylinders))
+> auto = as.data.frame(auto[complete.cases(auto),])
+>
+> # Add cylinders column into our estimation
+> cars_log <- with(auto, data.frame(log(mpg),
+>                                   log(weight),
+>                                   log(acceleration),
+>                                   auto$model_year,
+>                                   auto$origin,
+>                                   log(cylinders)))            
+> >
+> names(cars_log) <- c("mpg", "weight","acceleration", 
+>                      "model_year", "origin", 'cylinders')
+> >
+> knitr::kable(head(cars_log))
+> cor(cars_log)
+> # We can easily tell from the correlation matrix that cylinders and weight are
+> # highly correlated.
+> ```
+>
+> -   ***i.*** Model 1: Regress `log.weight.` over `log.cylinders` only.
+>
+>     ```{r}
+>     # predict weight by cylinders
+>     model_1 <- lm(weight~cylinders, data=cars_log)
+>     summary(model_1)
+>     ```
+>
+> -   ***ii.*** Model 2: Regress `log.mpg.`over `log.weight.` and all control variables.
+>
+>     ```{r}
+>     # we should include all factors instead of "Cylinders" to calculate the direct effects on the mpg.
+>     >
+>     model_2 <- lm(mpg~
+>                     weight+
+>                     acceleration+
+>                     model_year+
+>                     factor(origin)
+>                   , data=cars_log)
+>     summary(model_2)
+>     ```
+>
+> ### b. What is the indirect effect of cylinders on mpg?
+>
+> ```{r}
+> model_1$coefficients[2] * model_2$coefficients[2]
+> ```
+>
+> ## c. Bootstrap for the confidence interval of the indirect effect of `cylinders` on `mpg`.
+>
+> -   ***i.*** Bootstrap regression models 1 & 2, and compute the indirect effect each time. 
+>
+>     What is its 95% CI of the indirect effect of `log.cylinders.` on `log.mpg.`?
+>
+>     ```{r}
+>     boot_model <- function(model1, model2, dataset){
+>       boot_index <- sample(1:nrow(dataset), replace=TRUE)
+>       new_data <- dataset[boot_index,]
+>       regr1 <- lm(model1, new_data)
+>       regr2 <- lm(model2, new_data)
+>       return(regr1$coefficients[2]*regr2$coefficients[2])
+>     }
+>     >
+>     indirect <- replicate(2000, boot_model(model_1, model_2, cars_log))
+>     quantile(indirect, probs=c(0.025, 0.975))
+>     ```
+>
+> -   ***ii.*** Show a density plot of the distribution of the 95% CI of the indirect effect.
+>
+>     ```{r}
+>     ggplot()+
+>       aes(indirect)+
+>       geom_density()+
+>       geom_vline(xintercept=quantile(indirect, c(0.025, 0.975)), col='red', lty=2)+
+>       ggtitle('Distribution of 95% CI of the indirect effect')
+>     ```
+
+## Visualization
+
+```{r message=FALSE, warning=FALSE}
+library(lattice)
+
+# creating x, y grid of all possible points
+g <- expand.grid(weight=6:10, acceleration = seq(1.5, 3.5, 0.5))
+auto_regr <- lm(mpg~weight+acceleration, data=auto)
+g$mpg <- predict(auto_regr, g)
+auto_regr_intxn <- lm(mpg~
+                        weight+
+                        acceleration+
+                        weight*acceleration, 
+                      data=auto)
+g$mpg <- predict(auto_regr_intxn, g)
+
+wireframe(mpg~weight*acceleration, data=g, zlim=c(27, 35),
+          scales=list(arrows=FALSE), drape=TRUE, colorkey=FALSE,
+          screen=list(z=40, x=-70))
+
+```
