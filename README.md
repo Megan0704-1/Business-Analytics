@@ -2,21 +2,20 @@
 Computing Statistic applied on Business Analytics
 
 ## HW
-- HW1: Computation ans Statistics
 - HW2: Description and Simulation
 - HW3: Computational Intervals
 - HW4: Testing Revisited
 - HW5: Bootstrapped Tests
 - HW6: Permutation Tests
 - HW7: Multigroup Comparisons
-- HW8: Data Similarity
-- HW9: Linear Regression
-- HW10: Applied Regression
-- HW11: Moderation Mediation
-- HW12: Composites and Components
-- HW13: PCA and Factor Analysis
-- HW14: Structural Equational Modeling (SEM)
+- HW9: Data Similarity
+- HW10: Linear Regression
+- HW11: Applied Regression
+- HW12: Moderation Mediation
+- HW13: Composites and Components
+- HW14: PCA and Factor Analysis
+- HW15: Structural Equational Modeling (SEM)
   - PLS-PM
-  - CB=SEM
-- HW15: Predictions
-- HW16: Ensemble Predictions
+  - CB-SEM
+- HW17: Predictions
+- HW18: Ensemble Predictions
